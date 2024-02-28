@@ -1,0 +1,84 @@
+captainVersion: 4
+caproverOneClickApp:
+    instructions:
+        start: Starting of Yente.
+        end: Yente is deployed.
+    variables:
+        - id: $$cap_elasticsearch_version
+          label: 'Elasticsearch Version Tag'
+          description: 'Check out the releases overview: https://hub.docker.com/_/elasticsearch'
+          defaultValue: 8.4.1
+          validRegex: /^([^\s^\/])+$/
+        - id: $$cap_elasticsearch_cluster_name
+          label: Cluster Name
+          description: Only nodes within the same cluster name can be combined
+          defaultValue: elasticsearch-cluster
+          validRegex: /^([^\s^\/])+$/
+        - id: $$cap_elasticsearch_discovery_type
+          label: Discovery Type
+          description: Discovery type, for a single node cluster use `single-node`, otherwise `multi-node`
+          defaultValue: single-node
+          validRegex: /^([^\s^\/])+$/
+        - id: $$cap_elasticsearch_security_enabled
+          label: Security Enabled
+          defaultValue: 'false'
+          description: 'When you enable this option, Elasticsearch will create a random password (see startup logs) for the `elastic` user and create SSL certificates required for authentication. It is recommended to leave this off for a quick setup. Warning: make sure to enable HTTP Basic Auth in CapRover!'
+          validRegex: /^([^\s^\/])+$/
+        - id: $$cap_container_index_port
+          label: Container TCP Port
+          defaultValue: '9200'
+          description: Internal port for Elasticsearch the container listens to.
+          validRegex: /^([0-9])+$/
+        - id: $$cap_container_app_port
+          label: Container TCP Port
+          defaultValue: '8000'
+          description: Internal port for Yente the container listens to.
+          validRegex: /^([0-9])+$/
+    displayName: Yente
+    isOfficial: true
+    description: Yente is an open source data match-making API. The service provides several HTTP endpoints to search, retrieve or match FollowTheMoney entities, including people, companies or vessels that are subject to international sanctions.
+    documentation: Taken from https://github.com/opensanctions/yente
+
+services:
+  $$cap_appname-index:
+    image: docker.elastic.co/elasticsearch/elasticsearch:$$cap_elasticsearch_version
+    caproverExtra:
+      notExposeAsWebApp: 'true'
+      containerHttpPort: $$cap_container_index_port
+    volumes:
+      - $$cap_appname-index-elasticsearch-data:/usr/share/elasticsearch/data
+    restart: always
+    environment:
+      CLI_JAVA_OPTS: -Xms512m -Xmx512m
+      cluster.name: $$cap_elasticsearch_cluster_name
+      discovery.type: $$cap_elasticsearch_discovery_type
+      http.port: $$cap_container_index_port
+      node.name: $$cap_appname-index
+      xpack.security.enabled: $$cap_elasticsearch_security_enabled
+  $$cap_appname-app:
+    image: ghcr.io/opensanctions/yente:latest
+    depends_on:
+      - $$cap_appname-index
+    environment:
+      YENTE_ELASTICSEARCH_URL: http://srv-captain--$$cap_appname-index:9200
+      YENTE_STATEMENT_API: "false"
+      YENTE_UPDATE_TOKEN: ""
+      YENTE_ELASTICSEARCH_INDEX: "$$cap_appname-index"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/healthz" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 3s
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+    caproverExtra:
+      containerHttpPort: $$cap_container_app_port
+volumes:
+  index-os-data: null
